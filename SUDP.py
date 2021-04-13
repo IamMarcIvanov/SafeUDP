@@ -1,5 +1,11 @@
 import math
+import socket
 
+MAX_SEG_SIZE = 256
+SENDER_WINDOW_SIZE = 50
+PORT = 12345
+RECEIVER_WINDOW_SIZE = 50
+RECV_BUFF = 4096
 
 class Packet:
     def __init__(self, data, seqNum, ack=False, rst=False):
@@ -29,33 +35,62 @@ class Packet:
     
 
 class SUDP:
-    def __init__(self, udp_socket, pkt):
-        self.socket = udp_socket # UDP socket object
-        self.packet = pkt
+    def __init__(self, udp_socket, ip):
+        self.receiverIP = ip
+        self.sendSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.recvSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sendSocket.bind(str(self.receiverIP), PORT)
         self.senderNextSeqNum = 0
-        self.MSS = 256
+        self.MSS = MAX_SEG_SIZE
         self.senderBuffer = [0] * self.MSS
-        self.senderWindowSize = 50
+        self.senderWindowSize = SENDER_WINDOW_SIZE
         self.senderBase = 0
+        
+        self.receiverBuffer = [0] * self.MSS
+        self.receiverWindowSize = RECEIVER_WINDOW_SIZE
+        self.receiverBase = 0
+        self.receiverNextSeqNum = 0
         # 0 means unsent
         # 1 means sent but ack not received
         # 2 means sent and ack received
     
-    def sendSUDP(self, data, ip):
+    def sendPacket(self, data):
+        self.sendSocket.sendto(bytes(data.encode('utf-8')), (self.receiverIP, PORT))
+        
+    def sendSUDP(self, data):
         #UDP size 65000 bytes
-        #data = data.encode('utf-8')
         chunkSize = 65000
         dataSize = len(data)
-        if dataSize:
-            i = 0
-            while (i + 1) * chunkSize < dataSize:
-                chunk = data[i * chunkSize: (i + 1) * chunkSize]
-                pkt = Packet(data, seqNum)
-                seqNum = 
-                i += 1
+        if self.senderNextSeqNum % self.MSS < (self.senderBase + self.senderWindowSize) % self.MSS:
+            if dataSize:
+                i = 0
+                while (i + 1) * chunkSize < dataSize:
+                    chunk = data[i * chunkSize: (i + 1) * chunkSize]
+                    pkt = Packet(data, self.senderNextSeqNum % self.MSS)
+                    self.sendPacket(pkt.packet)
+                    # start timer(self.senderNextSeqNum % self.MSS)
+                    if senderBuffer[self.senderNextSeqNum % self.MSS] == 0:
+                        self.senderBuffer[self.senderNextSeqNum % self.MSS] = 1
+                    else:
+                        print('There is a problem with the Sender Buffer')
+                    self.senderNextSeqNum = ((self.senderNextSeqNum % self.MSS) + 1) % self.MSS
+                    i += 1
+            else:
+                pkt = Packet(data, self.senderNextSeqNum, ack=False, rst=True)
+                # self.sendPacket(pkt)
+                # start timer(self.senderNextSeqNum % self.MSS)
+                if senderBuffer[self.senderNextSeqNum % self.MSS] == 0:
+                    self.senderBuffer[self.senderNextSeqNum % self.MSS] = 1
+                else:
+                    print('There is a problem with the Sender Buffer')
+                self.senderNextSeqNum = (self.senderNextSeqNum + 1) % self.MSS
         else:
-            pkt = Packet(data, seqNum, )
-            
+            print('packet not sent. Buffer is full.')
+    
+    def receiveSUDP(self, ):
+        data, addr = self.recvSocket.recvfrom(RECV_BUFF)
+        if not self.isCorrupt(str(data)):
+            self.receiverNextSeqNum = 0
 
 class sendSUDP(SUDP, Packet):
     def __init__(self, udp_socket, pkt):
@@ -64,4 +99,3 @@ class sendSUDP(SUDP, Packet):
         self.send_win = []
         self.window_size
         
-BUFF_SIZE = 1024

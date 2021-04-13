@@ -49,7 +49,7 @@ class SUDP:
         self.receiverBuffer = [0] * self.MSS
         self.receiverWindowSize = RECEIVER_WINDOW_SIZE
         self.receiverBase = 0
-        self.receiverNextSeqNum = 0
+        self.receiverSeqNum = 0
         # 0 means unsent
         # 1 means sent but ack not received
         # 2 means sent and ack received
@@ -88,9 +88,10 @@ class SUDP:
             print('packet not sent. Buffer is full.')
     
     def receiveSUDP(self, ):
-        data, addr = self.recvSocket.recvfrom(RECV_BUFF)
-        if not self.isCorrupt(str(data)):
-            self.receiverNextSeqNum = 0
+        rcvData, addr = self.recvSocket.recvfrom(RECV_BUFF)
+        rcvData = str(rcvData)
+        if not self.isCorrupt(rcvData):
+            self.receiverSeqNum = self.getSeqNum(rcvData)
 
 class sendSUDP(SUDP, Packet):
     def __init__(self, udp_socket, pkt):

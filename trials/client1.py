@@ -1,3 +1,4 @@
+# %%
 import socket
 
 RECV_BUFFER = 4096
@@ -11,3 +12,8 @@ print(str(data))
 msg = bytes('Exit'.encode('utf-8'))
 client_socket.sendto(msg, ('127.0.0.1', 12345))
 client_socket.close()
+
+# %%
+import hashlib
+
+print(len(hashlib.sha256('My name is Danish'.encode('utf-8')).hexdigest()))

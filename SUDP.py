@@ -101,8 +101,9 @@ class client:
         return packetList
 
     def recv(self):
-        reply = self.udpSocket.recvfrom(RECV_BUFF_SIZE)
-        print("reply from server:",reply[0])
+        while(True):
+            reply = self.udpSocket.recvfrom(RECV_BUFF_SIZE)
+            print("reply from server:",reply[0])
 
 class server:
     localIP = "127.0.0.1"

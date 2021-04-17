@@ -2,13 +2,15 @@
 import math
 import socket
 import hashlib
+import threading
+import time
 
 MAX_SEG_SIZE = 256
 SENDER_WINDOW_SIZE = 50
 SERV_PORT = 12345
 RECV_PORT = 12346
 RECEIVER_WINDOW_SIZE = 50
-RECV_BUFF_SIZE = 4096
+RECV_BUFF_SIZE = 512
 
 # !create Timer
 # !create method to extract packet from received string
@@ -50,11 +52,12 @@ class Packet:
         self.packet = ''
 
     def makePacket(self):
-        flags = int("00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']), 2)
-        n_add0_seqNum = 3 - len(str(self.header['seqNum']))
-        n_add0_pkt_len = 6 - len(str(len(self.data) + 74))
-        headerStr = str(flags) + '0' * n_add0_seqNum + str(self.header['seqNum']) + str(self.header['checkSum']) + '0' * n_add0_pkt_len + str(self.header['packetLength'])
-        return headerStr + self.data
+        # flags = int("00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']), 2)
+        # n_add0_seqNum = 3 - len(str(self.header['seqNum']))
+        # n_add0_pkt_len = 6 - len(str(len(self.data) + 74))
+        # headerStr = str(flags) + '0' * n_add0_seqNum + str(self.header['seqNum']) + str(self.header['checkSum']) + '0' * n_add0_pkt_len + str(self.header['packetLength'])
+        # return headerStr + self.data
+        return "00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']) + "~~" + str(self.header['seqNum']) + "~~" + str(self.header['checkSum']) + "~~" +  str(self.header['packetLength']) + "~~" + self.data
 
     def getChecksum(self, data):
         return hashlib.sha256(str(data).encode()).hexdigest()
@@ -70,6 +73,7 @@ class client:
         # IMPLEMENT SELECTIVE REPEAT HERE!!!
         filename = str(input('Enter the name of file you want to send:'))
         packets = self.makePacketList(filename)
+        # print(packets)
         for packet in packets:
             self.udpSocket.sendto(bytes(packet,'utf-8'), (self.ip,self.port))
             print('packet sent')
@@ -80,7 +84,7 @@ class client:
         packetList = list()
 
         seq = 0
-        chunkSize = 50
+        chunkSize = 237
         fo = open(filename,"r")
         parts = list()
 
@@ -90,20 +94,41 @@ class client:
                 break
             else:
                 parts.append(part)
+                print(len(part))
 
         for part in parts:
-            print('part',seq,':',part)
             tempPkt = Packet(part,seq).makePacket()
-            print('appending:',tempPkt)
             packetList.append(tempPkt)
+            # print(tempPkt)
             seq += 1
 
+        #insert reset packet to end the connection
+        packetList.append(Packet("",-1,rst=True).makePacket())
         return packetList
 
+    # IMPLEMENT THE RECV IN SEND
     def recv(self):
         while(True):
-            reply = self.udpSocket.recvfrom(RECV_BUFF_SIZE)
-            print("reply from server:",reply[0])
+            reply = self.udpSocket.recvfrom(256)
+            message = reply[0]
+            address = reply[1]
+            serverMsg = "Message from Server:{}".format(message)
+            serverIP  = "Server IP Address:{}".format(address)
+            print(serverMsg)
+            print(serverIP)
+            message = message.decode().split("~~")
+            # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
+            # message[1] = seqnum
+            # message[2] = checkSum
+            # message[3] = packetLength
+            # message[4] = data
+            if(message[0][6] == "1"):
+                # self.udpSocket.sendto(str("reset Pcket received..! Now F off").encode(), address)
+                print("Complete transfer successfull")
+                break
+            else:
+                print("reply from server:",reply[0])
+
 
 class server:
     localIP = "127.0.0.1"
@@ -114,120 +139,56 @@ class server:
         print("Server is up!")
 
     def listen(self):
+        recvBuffer = list()
+        recvSeqBuffer = list() #Stores the received seqnum's in order
         # HANDLE SENDING ACK'S HERE! AND STORING RECEIVED DATA INTO BUFFERS.
+
         while(True):
-            bytesAddressPair = self.udpSocket.recvfrom(RECV_BUFF_SIZE)
+            bytesAddressPair = self.udpSocket.recvfrom(256)
             message = bytesAddressPair[0]
             address = bytesAddressPair[1]
             clientMsg = "Message from Client:{}".format(message)
             clientIP  = "Client IP Address:{}".format(address)
-            fo = open("received.txt","a")
-            # # 68 because first 4 bits are flag bits and next 64 is checksum
-            fo.write(str(message[70:-1])) # Properly write the data only to a file.
             print(clientMsg)
             print(clientIP)
+            message = message.decode().split("~~")
+            # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
+            # message[1] = seqnum
+            # message[2] = checkSum
+            # message[3] = packetLength
+            # message[4] = data
+            if(message[0][6] == "1"):
+                # we have received a rst packet ==> client is done sending.
+                # check if we have received every packet.
 
-            self.udpSocket.sendto(str("Pcket reeived..! Now F off").encode(), address)
+                #### HANDLE THE CASE IN CLIENT WHERE THIS RST PACKAGE GETS DROPPED
+                missingSeqNum = list()
+                Max = max(recvSeqBuffer)
+                for i in range(Max):
+                    if i not in recvSeqBuffer:
+                        missingSeqNum.append(i)
 
-# class Sender:
-#     def __init__(self, ip):
-#         self.sendSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-#         self.sendSocket.bind((str(self.receiverIP), SERV_PORT))
-#         self.sendSocket.setblocking(0)
-#         self.senderNextSeqNum = 0
-#         self.MSS = MAX_SEG_SIZE
-#         self.senderBuffer = [0] * self.MSS
-#         self.senderWindowSize = SENDER_WINDOW_SIZE
-#         self.senderBase = 0
-#         # 0 means unsent
-#         # 1 means sent but ack not received
-#         # 2 means sent and ack received
-#
-#         self.receiverStatusBuffer = [0] * self.MSS
-#         self.receiverDataBuffer = [0] * self.MSS
-#         self.receiverWindowSize = RECEIVER_WINDOW_SIZE
-#         self.receiverBase = 0
-#         self.receiverSeqNum = 0
-#         # 0 means not received
-#         # 1 means sent ack
-#
-#     def sendPacket(self, data, ip):
-#         self.sendSocket.sendto(bytes(data.encode('utf-8')), (ip, RECV_PORT))
-#
-#     def setPacket(self, data):
-#         pktReceived = Packet()
-#         data = str(data)
-#         flags = bin(data[: 2])
-#         pktReceived.header['ack'] = int(flags[6])
-#         pktReceived.header['rst'] = int(flags[7])
-#         pktReceived.header['chk'] = int(flags[7])
-#
-#     def sendSUDP(self, data):
-#         chunkSize = 65000
-#         dataSize = len(data)
-#         if self.senderNextSeqNum % self.MSS < (self.senderBase + self.senderWindowSize) % self.MSS:
-#             if dataSize:
-#                 i = 0
-#                 while (i + 1) * chunkSize < dataSize:
-#                     chunk = data[i * chunkSize: (i + 1) * chunkSize]
-#                     pkt = Packet(data, self.senderNextSeqNum % self.MSS)
-#                     pkt.packet = pkt.makePacket()
-#                     self.sendPacket(pkt.packet)
-#                     # start timer(self.senderNextSeqNum % self.MSS)
-#                     if senderBuffer[self.senderNextSeqNum % self.MSS] == 0:
-#                         self.senderBuffer[self.senderNextSeqNum % self.MSS] = 1
-#                     else:
-#                         print('There is a problem with the Sender Buffer')
-#                     self.senderNextSeqNum = ((self.senderNextSeqNum % self.MSS) + 1) % self.MSS
-#                     i += 1
-#             else:
-#                 pkt = Packet(data, self.senderNextSeqNum, ack=False, rst=True)
-#                 pkt.packet = pkt.makePacket()
-#                 self.sendPacket(pkt.packet)
-#                 # start timer(self.senderNextSeqNum % self.MSS)
-#                 if senderBuffer[self.senderNextSeqNum % self.MSS] == 0:
-#                     self.senderBuffer[self.senderNextSeqNum % self.MSS] = 1
-#                 else:
-#                     print('There is a problem with the Sender Buffer')
-#                 self.senderNextSeqNum = (self.senderNextSeqNum + 1) % self.MSS
-#         else:
-#             print('packet not sent. Buffer is full.')
-#
-#     def deliver_data(self, data):
-#         print(data)
-#
-#     def receiveSUDP(self):
-#         rcvData, addr = self.recvSocket.recvfrom(RECV_BUFF_SIZE)
-#         pkt = self.setPacket(rcvData)
-#         if pkt.header['checksum'] == Packet().getChecksum(pkt.data):
-#             self.receiverSeqNum = pkt.header['seqNum']
-#             if self.receiverBase < (self.receiverBase + self.receiverWindowSize) % self.MSS:
-#                 if(self.receiverBase < self.receiverSeqNum < (self.receiverBase + self.receiverWindowSize) % self.MSS):
-#                     self.receiverStatusBuffer[self.receiverSeqNum] = 1
-#                     self.receiverDataBuffer[self.receiverSeqNum] = pkt.data
-#                     ackPacket = Packet(self.receiverSeqNum, ack=True)
-#                     ackPacket.packet = ackPacket.makePacket()
-#                     self.sendPacket(ackPacket.packet, addr)
-#             elif (self.receiverBase == self.receiverSeqNum):
-#                 self.receiverStatusBuffer[self.receiverSeqNum] = 1
-#                 self.receiverDataBuffer[self.receiverSeqNum] = pkt.data
-#                 ackPacket = Packet(self.receiverSeqNum, ack=True)
-#                 ackPacket.packet = ackPacket.makePacket()
-#                 self.sendPacket(ackPacket.packet, addr)
-#
-#                 j = self.receiverBase
-#                 while(self.receiverStatusBuffer[j % self.MSS] == 1):
-#                     self.receiverStatusBuffer[(j + self.receiverWindowSize) % self.MSS] = 0
-#                     self.receiverDataBuffer[(j + self.receiverWindowSize) % self.MSS] = ''
-#                     self.deliver_data(self.receiverDataBuffer[j % self.MSS])
-#                     j += 1
-#                 self.receiverBase = j % self.MSS
-#             else:
-#                 if((self.receiverBase < self.receiverSeqNum < self.MSS) or
-#                    (0 <= self.receiverSeqNum < (self.receiverBase + self.receiverWindowSize % self.MSS))):
-#                     self.receiverStatusBuffer[self.receiverSeqNum] = 1
-#                     self.receiverStatusBuffer[self.receiverSeqNum] = 1
-#                     self.receiverDataBuffer[self.receiverSeqNum] = pkt.data
-#                     ackPacket = Packet(self.receiverSeqNum, ack=True)
-#                     ackPacket.packet = ackPacket.makePacket()
-#                     self.sendPacket(ackPacket.packet, addr)
+                if len(missingSeqNum) == 0:
+                    # we have received every packet. send an rst message to client to stop
+                    # further sending msgs.
+                    rstPacket = Packet("",-1,rst=True).makePacket().encode()
+                    self.udpSocket.sendto(rstPacket, address)
+                    break
+                # else:
+                    # send the missing packets list as data to resend again.
+
+            else:
+                if hashlib.sha256(message[4].encode()).hexdigest() == message[2]:
+                    recvBuffer.append(message[4])
+                    recvSeqBuffer.append(int(message[1]))
+                    ackPacket = Packet("",message[1],ack=True).makePacket().encode()
+                    self.udpSocket.sendto(ackPacket, address)
+
+        # ASSUMING SUCCESSFULL RECEIVE OF ALL DATA. REORDER THEM AND WRITE TO FILE.
+        self.udpSocket.close()
+
+        maxi = max(recvSeqBuffer)+1
+        f = open("received.txt", "a")
+        for i in range(maxi):
+            index = recvSeqBuffer.index(i)
+            f.write(recvBuffer[index])

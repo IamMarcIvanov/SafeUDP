@@ -5,18 +5,6 @@ import hashlib
 import threading
 import time
 
-MAX_SEG_SIZE = 256
-SENDER_WINDOW_SIZE = 50
-SERV_PORT = 12345
-RECV_PORT = 12346
-RECEIVER_WINDOW_SIZE = 50
-RECV_BUFF_SIZE = 512
-
-# !create Timer
-# !create method to extract packet from received string
-# !create deliver data function
-# !implement rst
-
 class Packet:
     def __init__(self, data='', seqNum=0, ack=False, rst=False):
 
@@ -36,11 +24,12 @@ class Packet:
         return hashlib.sha256(str(data).encode()).hexdigest()
 
 class client:
-    allPackets = None
+
     def __init__(self,serverIP,serverPort):
         self.udpSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.ip = serverIP
         self.port = serverPort
+        self.allPackets = None
         # self.message = packet
 
     def send(self):
@@ -73,10 +62,11 @@ class client:
                 break
             elif(message[1] == "-1" and message[0][5] == "1" and message[0][6] == "1"):
                 # We have received the list of dropped packets in data.
-                print("Dropped packets are:",message[4])
-                for i in message[4]:
-                    print("Resending packet",i)
-                    self.udpSocket.sendto(bytes(allPackets[int(i)],'utf-8'), (self.ip,self.port))
+                print("Dropped packets are:",message[4].split(';')[:-1])
+                for i in message[4].split(';')[:-1]:
+                    print("Resending packet", i)
+                    self.udpSocket.sendto(bytes(self.allPackets[int(i)],'utf-8'), (self.ip,self.port))
+                self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
 
         print("Closing connection to server.")
         self.udpSocket.close()
@@ -105,8 +95,8 @@ class client:
 
         #insert reset packet to end the connection
         packetList.append(Packet("",-1,rst=True).makePacket())
-        allPackets = list(packetList)
-        allPackets.pop()
+        self.allPackets = list(packetList)
+        self.allPackets.pop()
         return packetList
 
 class server:
@@ -128,8 +118,6 @@ class server:
             address = bytesAddressPair[1]
             clientMsg = "Message from Client:{}".format(message)
             clientIP  = "Client IP Address:{}".format(address)
-            # print(clientMsg)
-            # print(clientIP)
             message = message.decode().split("~~")
             # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
             # message[1] = seqnum
@@ -157,13 +145,16 @@ class server:
                     break
                 else:
                     # send the missing packets list as data to resend again.
-                    # if seq = -1, ack and rst are true then the data in the msg contains the indices of missing packet list.
+                    # if seq = -1, ack and rst are true then the data in the msg 
+                    # contains the indices of missing packet list.
                     drpdData = ""
                     for i in missingSeqNum:
+                        drpdData += str(i) + ';'
                         print("Missing packet",i)
-                        drpdData += str(i)
-                    drpdPackets = Packet(drpdData,-1,ack=True,rst=True).makePacket().encode()
+                    drpdPackets = Packet(drpdData,-1, ack=True, rst=True).makePacket().encode()
+                    print('Data', drpdPackets)
                     self.udpSocket.sendto(drpdPackets, address)
+                    print('Server sent request for missing packets\n')
 
             else:
                 if hashlib.sha256(message[4].encode()).hexdigest() == message[2]:

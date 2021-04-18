@@ -19,28 +19,6 @@ RECV_BUFF_SIZE = 512
 
 class Packet:
     def __init__(self, data='', seqNum=0, ack=False, rst=False):
-        """[summary]
-
-        Args:
-            data (str, optional): [description]. Defaults to ''.
-            seqNum (int, optional): [description]. Defaults to 0.
-            ack (bool, optional): [description]. Defaults to False.
-            rst (bool, optional): [description]. Defaults to False.
-
-        Vars:
-            self.data (str): [No fixed size] the data that the user client wants to send. Text string.
-            self.header (dict):
-                ack (int): [1 bit] 1 if this is acknowledge packet else 0.
-                rst (int): [1 bit] 1 if this is reset packet else 0.
-                chk (int): [1 bit] 1 if checksum is for header and data, else 0 if just for data.
-                seqNum (int): [3 bytes] 3 bytes (add zeroes if not len == 3)
-                checkSum (hexString): [64 bytes] SHA 256
-                packetLength (str): [6 bytes] (add zeroes if not len == 6)
-                    1 byte for flags +
-                    3 for sequence number +
-                    64 for checksum +
-                    6 for packet length = 74 bytes
-        """
 
         self.data = data
         self.header = {"ack": 1 if ack else 0,
@@ -48,16 +26,11 @@ class Packet:
                        "chk": 0,
                        "seqNum": seqNum,
                        "checkSum": self.getChecksum(self.data), # 64 bytes in length
-                       "packetLength": len(data) + 74} # 6 bytes
+                       "packetLength": len(self.data) + 74} # 6 bytes
         self.packet = ''
 
     def makePacket(self):
-        # flags = int("00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']), 2)
-        # n_add0_seqNum = 3 - len(str(self.header['seqNum']))
-        # n_add0_pkt_len = 6 - len(str(len(self.data) + 74))
-        # headerStr = str(flags) + '0' * n_add0_seqNum + str(self.header['seqNum']) + str(self.header['checkSum']) + '0' * n_add0_pkt_len + str(self.header['packetLength'])
-        # return headerStr + self.data
-        return "00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']) + "~~" + str(self.header['seqNum']) + "~~" + str(self.header['checkSum']) + "~~" +  str(self.header['packetLength']) + "~~" + self.data
+        return "00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']) + "~~" + str(self.header['seqNum']) + "~~" + str(self.header['checkSum']) + "~~" + str(self.header['packetLength']) + "~~" + self.data
 
     def getChecksum(self, data):
         return hashlib.sha256(str(data).encode()).hexdigest()
@@ -81,7 +54,7 @@ class client:
         # the sending object shd be of bytes format.
         print("Total Msg sent first time")
         while(True):
-            reply = self.udpSocket.recvfrom(1024)
+            reply = self.udpSocket.recvfrom(4096)
             message = reply[0]
             address = reply[1]
             serverMsg = "Message from Server:{}".format(message)
@@ -112,7 +85,7 @@ class client:
         packetList = list()
 
         seq = 0
-        chunkSize = 172
+        chunkSize = 1024
         fo = open(filename,"r")
         parts = list()
 
@@ -150,7 +123,7 @@ class server:
         # HANDLE SENDING ACK'S HERE! AND STORING RECEIVED DATA INTO BUFFERS.
 
         while(True):
-            bytesAddressPair = self.udpSocket.recvfrom(1024)
+            bytesAddressPair = self.udpSocket.recvfrom(4096)
             message = bytesAddressPair[0]
             address = bytesAddressPair[1]
             clientMsg = "Message from Client:{}".format(message)
@@ -195,10 +168,12 @@ class server:
             else:
                 if hashlib.sha256(message[4].encode()).hexdigest() == message[2]:
                     print("Received packet",message[1])
-                    recvBuffer.append(message[4])
-                    recvSeqBuffer.append(int(message[1]))
-                    ackPacket = Packet("",message[1],ack=True).makePacket().encode()
-                    self.udpSocket.sendto(ackPacket, address)
+                    # handles duplicates
+                    if(int(message[1]) not in recvSeqBuffer):
+                        recvBuffer.append(message[4])
+                        recvSeqBuffer.append(int(message[1]))
+                    # ackPacket = Packet("",message[1],ack=True).makePacket().encode()
+                    # self.udpSocket.sendto(ackPacket, address)
 
         # ASSUMING SUCCESSFULL RECEIVE OF ALL DATA. REORDER THEM AND WRITE TO FILE.
         print("Closing connection.. bye bye client")
@@ -206,6 +181,7 @@ class server:
 
         print("Writing to received.txt....")
         maxi = max(recvSeqBuffer)+1
+        #### SHD HANDLE MULTIPLE TYPES OF FILES
         f = open("received.txt", "w")
         for i in range(maxi):
             index = recvSeqBuffer.index(i)

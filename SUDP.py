@@ -4,6 +4,7 @@ import hashlib
 import threading
 import time
 import socketserver
+import base64
 
 
 BUFF_SIZE = 1024
@@ -26,7 +27,7 @@ class Packet:
         #return "00000" + str(self.header['ack']) + str(self.header['rst']) + str(self.header['chk']) + "~~" + str(self.header['seqNum']) + "~~" + str(self.header['checkSum']) + "~~" + str(self.header['packetLength']) + "~~" + self.data
 
     def getChecksum(self, data):
-        return hashlib.sha256(str(data).encode()).hexdigest()
+        return hashlib.sha256(base64.decodebytes(data)).hexdigest()
 
 class client:
 
@@ -52,9 +53,10 @@ class client:
             else:
                 parts.append(part)
                 print("Data length is",len(part))
-        i += 1
+            i += 1
 
         for part in parts:
+            print(type(part))
             tempPkt = Packet(part, seq).makePacket()
             packetList.append(tempPkt)
             print("Packet length is", len(tempPkt))
@@ -62,7 +64,7 @@ class client:
             seq += 1
 
         #insert reset packet to end the connection
-        packetList.append(Packet("", -1, rst=True).makePacket())
+        packetList.append(Packet(base64.encodebytes(bytes('', 'utf-8')), -1, rst=True).makePacket())
         self.allPackets = packetList
         self.allPackets.pop()
         return packetList
@@ -98,16 +100,20 @@ class client:
                     print('Missing packets are:', self.missingPackets)
                     for i in self.missingPackets:
                         self.udpSocket.sendto(self.allPackets[i], (self.ip,self.port))
-                    self.udpSocket.sendto(Packet("",-1,rst=True).makePacket(), (self.ip,self.port))
+                    self.udpSocket.sendto(Packet(base64.encodebytes(bytes('', 'utf-8')),-1,rst=True).makePacket(), (self.ip,self.port))
                     continue
 
             # We have received in specified time. Check for the type of msg and do appropriate action.
-            message = base64.decodebytes(message).split("~~")
+            message = base64.decodebytes(message).split(b"~~", 4)
             # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
             # message[1] = seqnum
             # message[2] = checkSum
             # message[3] = packetLength
             # message[4] = data
+            message[0].decode('ascii')
+            message[1].decode('ascii')
+            message[2].decode('ascii')
+            message[3].decode('ascii')
 
             # Check for rst packet
             if(message[0][6] == "1" and message[1] == "-1" and message[0][5] != "1"):
@@ -122,11 +128,11 @@ class client:
             elif(message[1] == "-1" and message[0][5] == "1" and message[0][6] == "1"):
                 # We have received the list of dropped packets in data.
                 #print("Dropped packets are:",message[4].split(';')[:-1])
-                for i in message[4].split(';')[:-1]:
+                for i in message[4].split(b';')[:-1]:
                     print("Resending packet", i)
                     self.missingPackets.add(int(i))
-                    self.udpSocket.sendto(bytes(self.allPackets[int(i)],'utf-8'), (self.ip,self.port))
-                self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
+                    self.udpSocket.sendto(self.allPackets[int(i)], (self.ip,self.port))
+                self.udpSocket.sendto(Packet(base64.encodebytes(bytes('', 'utf-8')), -1, rst=True).makePacket(), address)
 
         print("Closing connection to server.")
         self.udpSocket.close()
@@ -140,8 +146,8 @@ class server:
         print("Server is up!")
 
     def listen(self):
-        recvBuffer = list()
-        recvSeqBuffer = list() #Stores the received seqnum's in order
+        recvBuffer = []
+        recvSeqBuffer = [] #Stores the received seqnum's in order
         # HANDLE SENDING ACK'S HERE! AND STORING RECEIVED DATA INTO BUFFERS.
 
         self.udpSocket.settimeout(3)
@@ -149,18 +155,20 @@ class server:
             bytesAddressPair = None
 
             try:
-                bytesAddressPair = self.udpSocket.recvfrom(BUFF_SIZE)
+                message, address, = self.udpSocket.recvfrom(BUFF_SIZE)
             except Exception as e:
                 continue
 
-            message = bytesAddressPair[0]
-            address = bytesAddressPair[1]
-            message = message.decode().split("~~")
+            message = base64.decodebytes(message).split(b"~~", 4)
             # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
             # message[1] = seqnum
             # message[2] = checkSum
             # message[3] = packetLength
             # message[4] = data
+            message[0].decode('ascii')
+            message[1].decode('ascii')
+            message[2].decode('ascii')
+            message[3].decode('ascii')
             #if len(message[4]) < 10:
             #    continue
             if(message[0][6] == "1"):
@@ -169,7 +177,7 @@ class server:
                 # check if we have received every packet.
 
                 #### HANDLE THE CASE IN CLIENT WHERE THIS RST PACKAGE GETS DROPPED
-                missingSeqNum = list()
+                missingSeqNum = []
                 Max = max(recvSeqBuffer)+1
                 for i in range(Max):
                     if i not in recvSeqBuffer:
@@ -179,7 +187,7 @@ class server:
                     # we have received every packet. send an rst message to client to stop
                     # further sending msgs.
                     print("No packets dropped.. sending rst packet to client!!! yayy.. ;)")
-                    rstPacket = Packet("",-1,rst=True).makePacket().encode()
+                    rstPacket = Packet(base64.encodebytes(bytes('', 'utf-8')), -1, rst=True).makePacket()
                     self.udpSocket.sendto(rstPacket, address)
                     break
                 else:
@@ -190,18 +198,18 @@ class server:
                     for i in missingSeqNum:
                         drpdData += str(i) + ';'
                         print("Missing packet",i)
-                    drpdPackets = Packet(drpdData,-1, ack=True, rst=True).makePacket().encode()
+                    drpdPackets = Packet(drpdData, -1, ack=True, rst=True).makePacket()
                     #print('Data', drpdPackets)
                     self.udpSocket.sendto(drpdPackets, address)
                     print('Server sent request for missing packets\n')
             else:
-                if hashlib.sha256(message[4].encode()).hexdigest() == message[2]:
-                    print("Received packet",message[1])
+                if hashlib.sha256(base64.decodebytes(message[4] + b'========')).hexdigest() == message[2]:
+                    print("Received packet", message[1])
                     # handles duplicates
                     if(int(message[1]) not in recvSeqBuffer):
                         recvBuffer.append(message[4])
                         recvSeqBuffer.append(int(message[1]))
-                    ackPacket = Packet("",message[1],ack=True).makePacket().encode()
+                    ackPacket = Packet(base64.encodebytes(bytes('', 'utf-8')), message[1], ack=True).makePacket()
                     print('sending ack', message[1])
                     self.udpSocket.sendto(ackPacket, address)
 
@@ -210,10 +218,10 @@ class server:
         self.udpSocket.close()
 
         print("Writing to received.txt....")
-        maxi = max(recvSeqBuffer)+1
+        maxi = max(recvSeqBuffer) + 1
         #### SHD HANDLE MULTIPLE TYPES OF FILES
-        f = open("received.txt", "w")
+        f = open("received.txt", "wb")
         for i in range(maxi):
             index = recvSeqBuffer.index(i)
-            f.write(recvBuffer[index])
+            f.write(base64.decodebytes(recvBuffer[index]))
         print("Write succesfull... goodbye...")

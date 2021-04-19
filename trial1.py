@@ -66,14 +66,33 @@ print(decoded.count(b''))
 # %%
 import base64
 
-a = base64.encodebytes(bytes('hello', 'utf-8'))
+a = base64.encodebytes(bytes('', 'utf-8'))
 b = base64.decodebytes(a)
 print(b + b'super mario')
 print(bytes('hello', 'utf-8'))
 print(b)
-print(str(b))
+print(type(b.decode('ascii')))
 
 # %%
 a = [1, 2, 3]
 b = list(a)
 print(b)
+
+# %%
+
+import hashlib
+import base64
+import random
+import string
+
+def get_rand_string():
+    l = random.randint(32, 100)
+    return ''.join(random.sample(string.printable, l))
+    
+print('{:<10}{:<10}{:<10}{:<10}'.format('len', 'pos=', 'len%4', "posNL"))
+for i in range(20):
+    s = get_rand_string()
+    k = base64.encodebytes(bytes(s, 'utf-8'))
+    print('{:<10}{:<10}{:<10}{:<10}'.format(len(k), k.find(b'='), len(k) % 4, k.find(b'\n')))
+
+

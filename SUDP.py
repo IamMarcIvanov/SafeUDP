@@ -155,7 +155,6 @@ class server:
                     print('Data', drpdPackets)
                     self.udpSocket.sendto(drpdPackets, address)
                     print('Server sent request for missing packets\n')
-
             else:
                 if hashlib.sha256(message[4].encode()).hexdigest() == message[2]:
                     print("Received packet",message[1])

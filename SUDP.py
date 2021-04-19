@@ -3,6 +3,7 @@ import socket
 import hashlib
 import threading
 import time
+import socketserver
 
 class Packet:
     def __init__(self, data='', seqNum=0, ack=False, rst=False):
@@ -29,7 +30,7 @@ class client:
         self.ip = serverIP
         self.port = serverPort
         self.allPackets = None
-        self.missingPackets = None
+        self.missingPackets = list()
 
     def makePacketList(self,filename):
         packetList = list()
@@ -77,12 +78,12 @@ class client:
 
             try:
                 reply = self.udpSocket.recvfrom(4096)
-            except TimeoutException:
+            except Exception as e:
                 print("Timeout Occured! Checking possible actions..")
                 if(len(self.missingPackets) == 0):
                     print("Complete Transfer Successfull.. Bye Bye server..")
                     break
-                elif:
+                else:
                     for i in missingPackets:
                         self.udpSocket.sendto(bytes(self.allPackets[i],'utf-8'), (self.ip,self.port))
                     self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
@@ -138,7 +139,7 @@ class server:
 
             try:
                 bytesAddressPair = self.udpSocket.recvfrom(4096)
-            except TimeoutException:
+            except Exception as e:
                 continue
 
             message = bytesAddressPair[0]

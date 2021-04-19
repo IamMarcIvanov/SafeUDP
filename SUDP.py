@@ -1,4 +1,3 @@
-# %%
 import math
 import socket
 import hashlib
@@ -30,46 +29,7 @@ class client:
         self.ip = serverIP
         self.port = serverPort
         self.allPackets = None
-        # self.message = packet
-
-    def send(self):
-        # IMPLEMENT SELECTIVE REPEAT HERE!!!
-        filename = str(input('Enter the name of file you want to send:'))
-        packets = self.makePacketList(filename)
-        # print(packets)
-        for packet in packets:
-            self.udpSocket.sendto(bytes(packet,'utf-8'), (self.ip,self.port))
-            print('packet sent')
-        # the sending object shd be of bytes format.
-        print("Total Msg sent first time")
-        while(True):
-            reply = self.udpSocket.recvfrom(4096)
-            message = reply[0]
-            address = reply[1]
-            serverMsg = "Message from Server:{}".format(message)
-            serverIP  = "Server IP Address:{}".format(address)
-            print(serverMsg)
-            # print(serverIP)
-            message = message.decode().split("~~")
-            # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
-            # message[1] = seqnum
-            # message[2] = checkSum
-            # message[3] = packetLength
-            # message[4] = data
-            if(message[0][6] == "1" and message[1] == "-1" and message[0][5] != "1"):
-                # self.udpSocket.sendto(str("reset Pcket received..! Now F off").encode(), address)
-                print("Complete transfer successfull")
-                break
-            elif(message[1] == "-1" and message[0][5] == "1" and message[0][6] == "1"):
-                # We have received the list of dropped packets in data.
-                print("Dropped packets are:",message[4].split(';')[:-1])
-                for i in message[4].split(';')[:-1]:
-                    print("Resending packet", i)
-                    self.udpSocket.sendto(bytes(self.allPackets[int(i)],'utf-8'), (self.ip,self.port))
-                self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
-
-        print("Closing connection to server.")
-        self.udpSocket.close()
+        self.missingPackets = None
 
     def makePacketList(self,filename):
         packetList = list()
@@ -91,6 +51,7 @@ class client:
             tempPkt = Packet(part,seq).makePacket()
             packetList.append(tempPkt)
             print("Packet length is",len(tempPkt))
+            self.missingPackets.append(seq)
             seq += 1
 
         #insert reset packet to end the connection
@@ -98,6 +59,65 @@ class client:
         self.allPackets = list(packetList)
         self.allPackets.pop()
         return packetList
+
+    def send(self):
+        # IMPLEMENT SELECTIVE REPEAT HERE!!!
+        filename = str(input('Enter the name of file you want to send:'))
+        packets = self.makePacketList(filename)
+        # print(packets)
+        for packet in packets:
+            self.udpSocket.sendto(bytes(packet,'utf-8'), (self.ip,self.port))
+            print('packet sent')
+        # the sending object shd be of bytes format.
+        print("Total Msg sent first time")
+        # setting timeout to prevent waiting forever
+        self.udpSocket.settimeout(5)
+        while(True):
+            reply = None
+
+            try:
+                reply = self.udpSocket.recvfrom(4096)
+            except TimeoutException:
+                print("Timeout Occured! Checking possible actions..")
+                if(len(self.missingPackets) == 0):
+                    print("Complete Transfer Successfull.. Bye Bye server..")
+                    break
+                elif:
+                    for i in missingPackets:
+                        self.udpSocket.sendto(bytes(self.allPackets[i],'utf-8'), (self.ip,self.port))
+                    self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
+                    continue
+
+            # We have received in specified time. Check for the type of msg and do appropriate action.
+            message = reply[0]
+            address = reply[1]
+            message = message.decode().split("~~")
+            # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
+            # message[1] = seqnum
+            # message[2] = checkSum
+            # message[3] = packetLength
+            # message[4] = data
+
+            # Check for rst packet
+            if(message[0][6] == "1" and message[1] == "-1" and message[0][5] != "1"):
+                # self.udpSocket.sendto(str("reset Pcket received..! Now F off").encode(), address)
+                print("Complete transfer successfull")
+                break
+            # check for ack packet
+            elif(message[0][5] == "1" and message[1] != "-1" and message[0][6] != "1"):
+                self.missingPackets.remove(int(message[1]))
+                print("received ack for packet", message[1])
+            # Check for missing packets list
+            elif(message[1] == "-1" and message[0][5] == "1" and message[0][6] == "1"):
+                # We have received the list of dropped packets in data.
+                print("Dropped packets are:",message[4].split(';')[:-1])
+                for i in message[4].split(';')[:-1]:
+                    print("Resending packet", i)
+                    self.udpSocket.sendto(bytes(self.allPackets[int(i)],'utf-8'), (self.ip,self.port))
+                self.udpSocket.sendto(Packet("",-1,rst=True).makePacket().encode(), address)
+
+        print("Closing connection to server.")
+        self.udpSocket.close()
 
 class server:
     localIP = "127.0.0.1"
@@ -112,12 +132,17 @@ class server:
         recvSeqBuffer = list() #Stores the received seqnum's in order
         # HANDLE SENDING ACK'S HERE! AND STORING RECEIVED DATA INTO BUFFERS.
 
+        self.udpSocket.settimeout(5)
         while(True):
-            bytesAddressPair = self.udpSocket.recvfrom(4096)
+            bytesAddressPair = None
+
+            try:
+                bytesAddressPair = self.udpSocket.recvfrom(4096)
+            except TimeoutException:
+                continue
+
             message = bytesAddressPair[0]
             address = bytesAddressPair[1]
-            clientMsg = "Message from Client:{}".format(message)
-            clientIP  = "Client IP Address:{}".format(address)
             message = message.decode().split("~~")
             # message[0] = flagbits, [0][6] = rst, [0][5] = ack, [0][7] = chk
             # message[1] = seqnum
@@ -162,8 +187,8 @@ class server:
                     if(int(message[1]) not in recvSeqBuffer):
                         recvBuffer.append(message[4])
                         recvSeqBuffer.append(int(message[1]))
-                    # ackPacket = Packet("",message[1],ack=True).makePacket().encode()
-                    # self.udpSocket.sendto(ackPacket, address)
+                        ackPacket = Packet("",message[1],ack=True).makePacket().encode()
+                        self.udpSocket.sendto(ackPacket, address)
 
         # ASSUMING SUCCESSFULL RECEIVE OF ALL DATA. REORDER THEM AND WRITE TO FILE.
         print("Closing connection.. bye bye client")
